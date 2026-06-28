@@ -4,59 +4,32 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const path = require('path');
 
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, '/')));
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-const roles = {};
-let drawingHistory = []; // 👈 यहाँ बोर्ड पर लिखी गई हर लाइन लाइव सेव होगी
-let currentBackground = ''; // 👈 वर्तमान PDF या इमेज स्लाइड को याद रखने के लिए
-let currentZoom = 1;
+// 🔑 डायनामिक स्टूडेंट पासवर्ड स्टोर करने के लिए वेरिएबल
+let currentStudentPassword = "student2026"; 
 
 io.on('connection', (socket) => {
-    console.log('एक नया यूजर जुड़ा (ID):', socket.id);
+    console.log('A user connected:', socket.id);
 
-    // 👈 नया यूजर आते ही उसे पुरानी पूरी क्लास का बैकग्राउंड, ज़ूम और ड्रॉइंग का इतिहास ऑटो-सिंक हो जाएगा
-    socket.emit('bg-sync', currentBackground);
-    socket.emit('zoom-sync', currentZoom);
-    socket.emit('history-sync', drawingHistory);
+    // 🔑 नए जुड़ने वाले को मौजूदा स्टूडेंट पासवर्ड भेजना
+    socket.emit('init-student-password', currentStudentPassword);
+
+    // 🔑 जब टीचर पासवर्ड बदले, तो उसे अपडेट करके सबको बताना
+    socket.on('update-student-password', (newPassword) => {
+        currentStudentPassword = newPassword;
+        io.emit('init-student-password', currentStudentPassword);
+    });
 
     socket.on('register-role', (role) => {
-        roles[socket.id] = role;
-        console.log(`सॉकेट ${socket.id} ने रोल चुना: ${role}`);
-    });
-
-    socket.on('drawing', (data) => {
-        drawingHistory.push(data); // 👈 हर नई लाइन को इतिहास में सुरक्षित करें
-        socket.broadcast.emit('drawing', data);
-    });
-
-    socket.on('clearBoard', () => {
-        drawingHistory = []; // 👈 वॉश करने पर पूरा इतिहास भी साफ
-        currentBackground = '';
-        currentZoom = 1;
-        socket.broadcast.emit('clearBoard');
-    });
-
-    socket.on('bg-sync', (imgSrc) => {
-        currentBackground = imgSrc; // 👈 वर्तमान स्लाइड को याद रखें
-        if(!imgSrc) drawingHistory = []; // अगर बैकग्राउंड हटाया तो ड्राइंग भी साफ
-        socket.broadcast.emit('bg-sync', imgSrc);
-    });
-
-    socket.on('zoom-sync', (scale) => {
-        currentZoom = scale; // 👈 ज़ूम लेवल याद रखें
-        socket.broadcast.emit('zoom-sync', scale);
-    });
-
-    socket.on('toggle-lock', (isLocked) => {
-        io.emit('lock-state', isLocked);
-    });
-
-    socket.on('chat-message', (data) => {
-        io.emit('chat-message', data);
+        socket.role = role;
+        if(role === 'teacher') {
+            socket.join('teacher-room');
+        }
     });
 
     socket.on('signal', (data) => {
@@ -67,17 +40,24 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('draw', (data) => {
+        socket.broadcast.emit('draw', data);
+    });
+
+    socket.on('clear-board', () => {
+        socket.broadcast.emit('clear-board');
+    });
+
+    socket.on('chat-message', (data) => {
+        io.emit('chat-message', data);
+    });
+
     socket.on('disconnect', () => {
-        console.log('यूजर डिस्कनेक्ट हुआ:', socket.id);
-        delete roles[socket.id];
-        io.emit('user-left', socket.id);
+        console.log('User disconnected:', socket.id);
     });
 });
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
-    console.log(`=================================================`);
-    console.log(`🚀 मास्टर डेटा-पर्सिस्टेंट सर्वर चालू हो गया है!`);
-    console.log(`🌐 लोकल लिंक: http://localhost:${PORT}`);
-    console.log(`=================================================`);
+    console.log(`Server running on port ${PORT}`);
 });
